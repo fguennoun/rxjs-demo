@@ -1,0 +1,98 @@
+<!--  ======================================
+ 📁 posts.component.html - The template
+============================================ -->
+
+<div class="container">
+  <h1>📚 Posts List (RxJS + Angular)</h1>
+
+  <div class="explanation">
+    <h3>💡 RxJS Concepts Used:</h3>
+    <ul>
+      <li><strong>HttpClient</strong> returns Observables automatically</li>
+      <li><strong>Pipe operators</strong>: map, filter, tap, catchError, retry</li>
+      <li><strong>debounceTime</strong>: Optimizes search (300ms delay)</li>
+      <li><strong>combineLatest</strong>: Combines search + user filter</li>
+      <li><strong>async pipe</strong>: Automatically handles subscribe/unsubscribe</li>
+      <li><strong>shareReplay</strong>: Caches HTTP results</li>
+    </ul>
+  </div>
+
+  <div class="controls">
+    <input
+      type="text"
+      [formControl]="searchControl"
+      placeholder="🔍 Search..."
+      class="search-input"
+    >
+
+    <select [formControl]="userIdControl" class="user-select">
+      <option [ngValue]="null">All Users</option>
+      <option [ngValue]="1">User 1</option>
+      <option [ngValue]="2">User 2</option>
+      <option [ngValue]="3">User 3</option>
+    </select>
+
+    <button (click)="refresh()" class="btn">🔄 Refresh</button>
+    <button (click)="clearFilters()" class="btn">🗑️ Clear Filters</button>
+  </div>
+
+  <!-- ✅ ASYNC PIPE: No need for subscribe()! -->
+  @if (stats$ | async; as stats) {
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-label">Posts Displayed</div>
+        <div class="stat-value">{{ stats.displayed }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Words</div>
+        <div class="stat-value">{{ stats.totalWords }}</div>
+      </div>
+    </div>
+  }
+
+  @if (error) {
+    <div class="error">
+      ❌ {{ error }}
+    </div>
+  }
+
+  <!-- ✅ ASYNC PIPE automatically manages subscription -->
+  @if (postsWithState$ | async; as state) {
+    <!-- Show loading indicator only when loading AND no posts are available yet -->
+    @if (state.loading && state.posts.length === 0) {
+      <div class="loading">
+        ⏳ Loading...
+      </div>
+    }
+
+    <!-- Show content area when not loading OR when posts exist -->
+    @if (!state.loading || state.posts.length > 0) {
+      <!-- Show "no results" message when not loading and no posts -->
+      @if (state.posts.length === 0 && !state.loading) {
+        <div class="no-results">
+          No posts found
+        </div>
+      }
+
+      <!-- Display posts when they exist -->
+      @if (state.posts.length > 0) {
+        <div class="posts">
+          @for (post of state.posts; track post.id) {
+            <div class="post">
+              <h3 class="post-title">{{ post.title }}</h3>
+              <p class="post-excerpt">{{ post.excerpt }}</p>
+              <div class="post-meta">
+                <span>📝 Post #{{ post.id }}</span>
+                <span>👤 User {{ post.userId }}</span>
+                <span class="badge">{{ post.wordCount }} words</span>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    }
+  } @else {
+    <!-- Initial loading state (before postsWithState$ emits) -->
+    <div class="loading">⏳ Loading posts...</div>
+  }
+</div>
