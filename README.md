@@ -25,11 +25,16 @@ This application demonstrates how to build a reactive Angular application using 
 - ✅ Fetch posts from REST API using Angular HttpClient
 - ✅ Reactive search with debouncing
 - ✅ User-based filtering
+- ✅ **Sorting functionality** (by ID, Title, User ID)
+- ✅ **Keyboard shortcuts** (R=refresh, C=clear, F=focus search)
+- ✅ **Auto-refresh toggle** with interval
+- ✅ **Notification system** with toast messages
 - ✅ Loading states and error handling
 - ✅ Data caching with shareReplay
 - ✅ Automatic subscription management with async pipe
 - ✅ Memory leak prevention with takeUntil
 - ✅ Modern, responsive UI
+- ✅ Modern Angular control flow (@if, @for)
 
 ## 🛠 Technologies Used
 
@@ -124,6 +129,29 @@ const subscription = observable.subscribe({
 // Unsubscribe to prevent memory leaks
 subscription.unsubscribe();
 ```
+
+#### Subjects
+A Subject is a special type of Observable that allows values to be multicasted to many Observers. Subjects are like EventEmitters: they maintain a registry of many listeners.
+
+```typescript
+const subject = new Subject<string>();
+
+// Subscribe to the subject
+subject.subscribe(value => console.log(value));
+
+// Emit values
+subject.next('Hello');
+subject.next('World');
+
+// Complete the subject
+subject.complete();
+```
+
+**Types of Subjects:**
+- **Subject**: Basic Subject, no initial value
+- **BehaviorSubject**: Requires an initial value and stores the current value
+- **ReplaySubject**: Replays a specified number of emissions to new subscribers
+- **AsyncSubject**: Emits only the last value when it completes
 
 ### Why RxJS?
 
@@ -225,6 +253,39 @@ Creates an Observable that emits the given value and completes.
 of([])  // Emits empty array and completes
 ```
 
+#### `fromEvent(target, eventName)`
+Creates an Observable from DOM events or other event sources.
+
+```typescript
+fromEvent<KeyboardEvent>(document, 'keydown').pipe(
+  map(event => event.key),
+  filter(key => key === 'r')
+).subscribe(key => {
+  console.log('R key pressed!');
+});
+```
+
+#### `interval(period)`
+Creates an Observable that emits sequential numbers every specified time interval.
+
+```typescript
+interval(1000).pipe(
+  take(5)  // Emit 5 times then complete
+).subscribe(count => {
+  console.log(count);  // 0, 1, 2, 3, 4
+});
+```
+
+#### `EMPTY`
+An Observable that immediately completes without emitting any values.
+
+```typescript
+EMPTY.subscribe({
+  next: () => console.log('Never called'),
+  complete: () => console.log('Immediately completes')
+});
+```
+
 ### Transformation Operators
 
 #### `map(project)`
@@ -285,6 +346,18 @@ combineLatest([searchTerm$, userId$]).pipe(
     // Use both values
   })
 )
+```
+
+#### `merge(...observables)`
+Creates an Observable that emits all values from all input Observables.
+
+```typescript
+const manualRefresh$ = this.refreshTrigger$;
+const autoRefresh$ = interval(30000);
+
+merge(manualRefresh$, autoRefresh$).subscribe(() => {
+  // Triggered by either manual or auto refresh
+});
 ```
 
 #### `startWith(value)`
@@ -355,6 +428,160 @@ this.postsCache$ = this.http.get('/posts').pipe(
 )
 ```
 
+## 🎮 Advanced Features
+
+### Keyboard Shortcuts with `fromEvent`
+
+The application implements keyboard shortcuts using `fromEvent` to listen to keyboard events:
+
+```typescript
+private setupKeyboardShortcuts(): void {
+  fromEvent<KeyboardEvent>(document, 'keydown').pipe(
+    filter(event => {
+      // Only trigger when not typing in input fields
+      const target = event.target as HTMLElement;
+      return target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA';
+    }),
+    map(event => event.key.toLowerCase()),
+    filter(key => key === 'r' || key === 'c' || key === 'f'),
+    takeUntil(this.destroy$)
+  ).subscribe(key => {
+    if (key === 'r') {
+      this.refresh();
+    } else if (key === 'c') {
+      this.clearFilters();
+    } else if (key === 'f') {
+      // Focus search input
+    }
+  });
+}
+```
+
+**Available Shortcuts:**
+- **R** - Refresh data
+- **C** - Clear all filters
+- **F** - Focus search input
+
+### Auto-Refresh with `interval` and `merge`
+
+The application implements auto-refresh functionality using `interval` and `merge`:
+
+```typescript
+// Manual refresh trigger
+const manualRefresh$ = this.refreshTrigger$.pipe(
+  startWith(undefined)
+);
+
+// Auto-refresh trigger (every 30 seconds when enabled)
+const autoRefresh$ = this.autoRefreshTrigger$.pipe(
+  startWith(false),
+  switchMap(enabled => {
+    if (!enabled) {
+      return EMPTY;  // Don't emit when disabled
+    }
+    return interval(30000).pipe(
+      map(() => undefined)  // Emit to trigger refresh
+    );
+  })
+);
+
+// Merge both triggers
+const refresh$ = merge(manualRefresh$, autoRefresh$);
+```
+
+**Features:**
+- Toggle auto-refresh on/off
+- Configurable refresh interval (30 seconds)
+- Visual indicator when auto-refresh is active
+- Automatically merges with manual refresh triggers
+
+### Notification System with `Subject`
+
+The application uses a `Subject` to implement a notification/toast system:
+
+```typescript
+// Notification subject
+notification$ = new Subject<string | null>();
+currentNotification: string | null = null;
+
+// Subscribe to notifications
+this.notification$.pipe(
+  tap(notification => {
+    this.currentNotification = notification;
+    if (notification) {
+      // Auto-hide after 3 seconds
+      setTimeout(() => {
+        this.currentNotification = null;
+      }, 3000);
+    }
+  }),
+  takeUntil(this.destroy$)
+).subscribe();
+
+// Show notification
+showNotification(message: string): void {
+  this.notification$.next(message);
+}
+```
+
+**Features:**
+- Toast notifications for user actions
+- Auto-hide after 3 seconds
+- Smooth slide-in animation
+- Non-intrusive design
+
+### Sorting Functionality
+
+The application implements reactive sorting with multiple options:
+
+```typescript
+// Sort options
+sortBy: 'id' | 'title' | 'userId' = 'id';
+sortOrder: 'asc' | 'desc' = 'asc';
+
+// Sort posts
+private sortPosts(
+  posts: PostViewModel[], 
+  sortBy: 'id' | 'title' | 'userId', 
+  order: 'asc' | 'desc'
+): PostViewModel[] {
+  return [...posts].sort((a, b) => {
+    let comparison = 0;
+    switch (sortBy) {
+      case 'id':
+        comparison = a.id - b.id;
+        break;
+      case 'title':
+        comparison = a.title.localeCompare(b.title);
+        break;
+      case 'userId':
+        comparison = a.userId - b.userId;
+        break;
+    }
+    return order === 'asc' ? comparison : -comparison;
+  });
+}
+
+// Change sort option
+changeSort(sortBy: 'id' | 'title' | 'userId'): void {
+  if (this.sortBy === sortBy) {
+    // Toggle order if same sort option
+    this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    this.sortBy = sortBy;
+    this.sortOrder = 'asc';
+  }
+  // Trigger refresh to apply sorting
+  this.refreshTrigger$.next();
+}
+```
+
+**Features:**
+- Sort by ID, Title, or User ID
+- Toggle ascending/descending order
+- Visual indicators for active sort and direction
+- Reactive updates using Observables
+
 ## 💻 Implementation Details
 
 ### Service Layer (`post.service.ts`)
@@ -395,16 +622,34 @@ export class PostService {
 
 ### Component Layer (`posts.component.ts`)
 
-The component uses reactive patterns to manage UI state:
+The component uses reactive patterns to manage UI state with advanced features:
 
 ```typescript
 export class PostsComponent implements OnInit, OnDestroy {
   searchControl = new FormControl('');
   userIdControl = new FormControl<number | null>(null);
   posts$!: Observable<PostViewModel[]>;
+  
+  // Notification system
+  notification$ = new Subject<string | null>();
+  currentNotification: string | null = null;
+  
+  // Auto-refresh
+  autoRefreshEnabled = false;
+  autoRefreshInterval = 30; // seconds
+  
+  // Sorting
+  sortBy: 'id' | 'title' | 'userId' = 'id';
+  sortOrder: 'asc' | 'desc' = 'asc';
+  
   private destroy$ = new Subject<void>();
+  private refreshTrigger$ = new Subject<void>();
+  private autoRefreshTrigger$ = new Subject<boolean>();
 
   ngOnInit(): void {
+    // Setup keyboard shortcuts
+    this.setupKeyboardShortcuts();
+    
     // Create observables from form controls
     const searchTerm$ = this.searchControl.valueChanges.pipe(
       startWith(''),
@@ -418,29 +663,61 @@ export class PostsComponent implements OnInit, OnDestroy {
       takeUntil(this.destroy$)
     );
 
+    // Manual and auto refresh triggers
+    const manualRefresh$ = this.refreshTrigger$.pipe(startWith(undefined));
+    const autoRefresh$ = this.autoRefreshTrigger$.pipe(
+      startWith(false),
+      switchMap(enabled => enabled 
+        ? interval(this.autoRefreshInterval * 1000)
+        : EMPTY
+      )
+    );
+    const refresh$ = merge(manualRefresh$, autoRefresh$);
+
     // Combine observables
-    this.posts$ = combineLatest([searchTerm$, userId$]).pipe(
-      switchMap(([searchTerm, userId]) => {
+    this.posts$ = combineLatest([searchTerm$, userId$, refresh$]).pipe(
+      switchMap(([searchTerm, userId, _]) => {
         const source$ = userId
           ? this.postService.getPostsByUser(userId)
           : this.postService.getAllPosts();
 
         return source$.pipe(
-          map(posts => this.filterPosts(posts, searchTerm)),
+          map(posts => {
+            // Apply search filter
+            let filtered = searchTerm
+              ? posts.filter(post => /* search logic */)
+              : posts;
+            // Apply sorting
+            return this.sortPosts(filtered, this.sortBy, this.sortOrder);
+          }),
           catchError(error => {
             this.error = error.message;
             return of([]);
           })
         );
       }),
-      finalize(() => this.loading = false),
+      shareReplay(1),
       takeUntil(this.destroy$)
     );
+    
+    // Setup notification system
+    this.notification$.pipe(
+      tap(notification => {
+        this.currentNotification = notification;
+        if (notification) {
+          setTimeout(() => this.currentNotification = null, 3000);
+        }
+      }),
+      takeUntil(this.destroy$)
+    ).subscribe();
   }
 
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+    this.refreshTrigger$.complete();
+    this.autoRefreshTrigger$.complete();
+    this.notification$.complete();
   }
 }
 ```
@@ -451,26 +728,70 @@ export class PostsComponent implements OnInit, OnDestroy {
 - ✅ Loading and error state management
 - ✅ Debounced search
 - ✅ Combined filters
+- ✅ Keyboard shortcuts with `fromEvent`
+- ✅ Auto-refresh with `interval` and `merge`
+- ✅ Notification system with `Subject`
+- ✅ Sorting functionality
+- ✅ Combined state management
 
 ### Template (`posts.component.html`)
 
-The template uses the async pipe for automatic subscription management:
+The template uses modern Angular control flow syntax (`@if`, `@for`) and the async pipe:
 
 ```html
-<!-- Async pipe automatically subscribes and unsubscribes -->
-<div *ngIf="posts$ | async as posts">
-  <div *ngFor="let post of posts" class="post">
-    <h3>{{ post.title }}</h3>
-    <p>{{ post.excerpt }}</p>
+<!-- Notification Toast -->
+@if (currentNotification) {
+  <div class="notification">
+    {{ currentNotification }}
   </div>
+}
+
+<!-- Controls with sorting and auto-refresh -->
+<div class="controls">
+  <input [formControl]="searchControl" placeholder="🔍 Search... (Press F to focus)" />
+  
+  <select [formControl]="userIdControl">
+    <option [ngValue]="null">All Users</option>
+    <!-- ... -->
+  </select>
+  
+  <!-- Sort controls -->
+  <div class="sort-controls">
+    <button (click)="changeSort('id')" [class.active]="sortBy === 'id'">
+      ID {{ sortBy === 'id' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
+    </button>
+    <!-- ... -->
+  </div>
+  
+  <button (click)="refresh()" title="Press R to refresh">🔄 Refresh</button>
+  <button (click)="toggleAutoRefresh()" [class.active]="autoRefreshEnabled">
+    {{ autoRefreshEnabled ? '⏸️ Auto-refresh ON' : '▶️ Auto-refresh OFF' }}
+  </button>
 </div>
+
+<!-- Posts with async pipe -->
+@if (postsWithState$ | async; as state) {
+  @if (state.posts.length > 0) {
+    <div class="posts">
+      @for (post of state.posts; track post.id) {
+        <div class="post">
+          <h3>{{ post.title }}</h3>
+          <p>{{ post.excerpt }}</p>
+        </div>
+      }
+    </div>
+  }
+}
 ```
 
-**Benefits of Async Pipe:**
-- ✅ Automatic subscription management
+**Benefits:**
+- ✅ Modern Angular control flow (`@if`, `@for`)
+- ✅ Automatic subscription management with async pipe
 - ✅ Automatic unsubscription on component destroy
 - ✅ No manual cleanup needed
-- ✅ Cleaner template code
+- ✅ Cleaner, more readable template code
+- ✅ Better performance with track function in `@for`
+- ✅ Type-safe template code
 
 ## ✅ Best Practices
 
@@ -645,6 +966,12 @@ This application demonstrates:
 6. **Caching**: Implementing request caching with shareReplay
 7. **Declarative UI**: Using async pipe for automatic subscription management
 8. **Modern Angular**: Using standalone components and modern Angular features
+9. **Event Handling**: Using `fromEvent` for keyboard shortcuts
+10. **Timers**: Using `interval` for auto-refresh functionality
+11. **Observable Combination**: Using `merge` to combine multiple triggers
+12. **Reactive Communication**: Using `Subject` for notifications
+13. **Sorting**: Implementing reactive sorting with state management
+14. **Modern Control Flow**: Using `@if` and `@for` syntax
 
 ## 🎓 Learning Outcomes
 
@@ -658,6 +985,15 @@ After studying this project, you should understand:
 - ✅ How to cache HTTP requests
 - ✅ How to handle errors gracefully
 - ✅ How to use the async pipe
+- ✅ How to handle DOM events with `fromEvent`
+- ✅ How to create timers with `interval`
+- ✅ How to combine Observables with `merge` and `combineLatest`
+- ✅ How to use `Subject` for reactive communication
+- ✅ How to implement keyboard shortcuts
+- ✅ How to create auto-refresh functionality
+- ✅ How to build notification systems
+- ✅ How to implement reactive sorting
+- ✅ How to use modern Angular control flow (`@if`, `@for`)
 - ✅ Best practices for RxJS in Angular
 
 ---

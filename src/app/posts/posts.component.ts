@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { Subject, Observable, combineLatest, of } from 'rxjs';
+import { Subject, Observable, combineLatest, of, fromEvent, interval, merge, EMPTY } from 'rxjs';
 import {
   debounceTime,
   distinctUntilChanged,
@@ -13,6 +13,7 @@ import {
   tap,
   finalize,
   shareReplay,
+  filter,
 } from 'rxjs/operators';
 import { PostViewModel } from '../model/post.model';
 import { PostService } from '../service/post.service';
@@ -46,14 +47,31 @@ export class PostsComponent implements OnInit, OnDestroy {
   postsWithState$!: Observable<{ posts: PostViewModel[]; loading: boolean }>;
   error: string | null = null;
 
+  // Notification system
+  notification$ = new Subject<string | null>();
+  currentNotification: string | null = null;
+
+  // Auto-refresh toggle
+  autoRefreshEnabled = false;
+  autoRefreshInterval = 30; // seconds
+
+  // Sort options
+  sortBy: 'id' | 'title' | 'userId' = 'id';
+  sortOrder: 'asc' | 'desc' = 'asc';
+
   // For proper unsubscription
   private destroy$ = new Subject<void>();
   // Refresh trigger to force reload
   private refreshTrigger$ = new Subject<void>();
+  // Auto-refresh trigger (emits boolean to enable/disable)
+  private autoRefreshTrigger$ = new Subject<boolean>();
 
   constructor(private postService: PostService) {}
 
   ngOnInit(): void {
+    // ✅ KEYBOARD SHORTCUTS with fromEvent (RxJS)
+    this.setupKeyboardShortcuts();
+
     // ✅ DECLARATIVE APPROACH with RxJS
     // Combine search and user filter
     const searchTerm$ = this.searchControl.valueChanges.pipe(
@@ -88,8 +106,34 @@ export class PostsComponent implements OnInit, OnDestroy {
     );
 
     // Refresh trigger starts with a value and listens for refresh events
-    const refresh$ = this.refreshTrigger$.pipe(
+    const manualRefresh$ = this.refreshTrigger$.pipe(
       startWith(undefined),
+      takeUntil(this.destroy$)
+    );
+
+    // ✅ AUTO-REFRESH with interval (RxJS)
+    // Create auto-refresh observable that emits every X seconds when enabled
+    const autoRefresh$ = this.autoRefreshTrigger$.pipe(
+      startWith(false),
+      switchMap(enabled => {
+        if (!enabled) {
+          // Return EMPTY observable that never emits when disabled
+          return EMPTY;
+        }
+        // When enabled, create interval that emits every X seconds
+        return interval(this.autoRefreshInterval * 1000).pipe(
+          tap(() => {
+            this.showNotification(`Auto-refreshing...`);
+          }),
+          map(() => undefined), // Emit undefined to trigger refresh
+          takeUntil(this.destroy$)
+        );
+      }),
+      takeUntil(this.destroy$)
+    );
+
+    // Merge manual and auto refresh triggers
+    const refresh$ = merge(manualRefresh$, autoRefresh$).pipe(
       takeUntil(this.destroy$)
     );
 
@@ -109,10 +153,11 @@ export class PostsComponent implements OnInit, OnDestroy {
           ? this.postService.getPostsByUser(userId)
           : this.postService.getAllPosts();
 
-        // Then apply the search
+        // Then apply the search and sorting
         return source$.pipe(
-          map((posts) =>
-            searchTerm
+          map((posts) => {
+            // Apply search filter
+            let filtered = searchTerm
               ? posts.filter(
                   (post) =>
                     post.title
@@ -120,8 +165,11 @@ export class PostsComponent implements OnInit, OnDestroy {
                       .includes(searchTerm.toLowerCase()) ||
                     post.body.toLowerCase().includes(searchTerm.toLowerCase())
                 )
-              : posts
-          ),
+              : posts;
+            
+            // ✅ SORTING with scan-like approach (RxJS)
+            return this.sortPosts(filtered, this.sortBy, this.sortOrder);
+          }),
           tap(() => {
             // Set loading to false when data arrives
             isLoading$.next(false);
@@ -168,6 +216,99 @@ export class PostsComponent implements OnInit, OnDestroy {
       })),
       takeUntil(this.destroy$)
     );
+
+    // ✅ NOTIFICATION SYSTEM with Subject (RxJS)
+    this.notification$.pipe(
+      tap(notification => {
+        this.currentNotification = notification;
+        if (notification) {
+          // Auto-hide notification after 3 seconds
+          setTimeout(() => {
+            this.currentNotification = null;
+          }, 3000);
+        }
+      }),
+      takeUntil(this.destroy$)
+    ).subscribe();
+  }
+
+  // ✅ KEYBOARD SHORTCUTS with fromEvent (RxJS)
+  private setupKeyboardShortcuts(): void {
+    fromEvent<KeyboardEvent>(document, 'keydown').pipe(
+      filter(event => {
+        // Only trigger when not typing in input fields
+        const target = event.target as HTMLElement;
+        return target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA';
+      }),
+      map(event => event.key.toLowerCase()),
+      filter(key => key === 'r' || key === 'c' || key === 'f'),
+      takeUntil(this.destroy$)
+    ).subscribe(key => {
+      if (key === 'r') {
+        this.refresh();
+        this.showNotification('Refreshed! (Press R to refresh)');
+      } else if (key === 'c') {
+        this.clearFilters();
+        this.showNotification('Filters cleared! (Press C to clear)');
+      } else if (key === 'f') {
+        // Focus search input
+        const searchInput = document.querySelector('.search-input') as HTMLInputElement;
+        if (searchInput) {
+          searchInput.focus();
+        }
+      }
+    });
+  }
+
+  // ✅ SORTING functionality
+  private sortPosts(posts: PostViewModel[], sortBy: 'id' | 'title' | 'userId', order: 'asc' | 'desc'): PostViewModel[] {
+    const sorted = [...posts].sort((a, b) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'id':
+          comparison = a.id - b.id;
+          break;
+        case 'title':
+          comparison = a.title.localeCompare(b.title);
+          break;
+        case 'userId':
+          comparison = a.userId - b.userId;
+          break;
+      }
+      return order === 'asc' ? comparison : -comparison;
+    });
+    return sorted;
+  }
+
+  // Show notification
+  showNotification(message: string): void {
+    this.notification$.next(message);
+  }
+
+  // Toggle auto-refresh
+  toggleAutoRefresh(): void {
+    this.autoRefreshEnabled = !this.autoRefreshEnabled;
+    // Trigger the auto-refresh observable to start/stop
+    this.autoRefreshTrigger$.next(this.autoRefreshEnabled);
+    if (this.autoRefreshEnabled) {
+      this.showNotification(`Auto-refresh enabled (every ${this.autoRefreshInterval}s)`);
+    } else {
+      this.showNotification('Auto-refresh disabled');
+    }
+  }
+
+  // Change sort option
+  changeSort(sortBy: 'id' | 'title' | 'userId'): void {
+    if (this.sortBy === sortBy) {
+      // Toggle order if same sort option
+      this.sortOrder = this.sortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.sortBy = sortBy;
+      this.sortOrder = 'asc';
+    }
+    // Trigger refresh to apply sorting
+    this.refreshTrigger$.next();
+    this.showNotification(`Sorted by ${sortBy} (${this.sortOrder})`);
   }
 
   ngOnDestroy(): void {
@@ -175,12 +316,15 @@ export class PostsComponent implements OnInit, OnDestroy {
     this.destroy$.next();
     this.destroy$.complete();
     this.refreshTrigger$.complete();
+    this.autoRefreshTrigger$.complete();
+    this.notification$.complete();
   }
 
   refresh(): void {
     this.postService.clearCache();
     // Trigger a new load by emitting to refresh trigger
     this.refreshTrigger$.next();
+    this.showNotification('Data refreshed!');
   }
 
   filterByUser(userId: number): void {
@@ -190,5 +334,6 @@ export class PostsComponent implements OnInit, OnDestroy {
   clearFilters(): void {
     this.searchControl.setValue('');
     this.userIdControl.setValue(null);
+    this.showNotification('Filters cleared!');
   }
 }

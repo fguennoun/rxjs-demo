@@ -9,19 +9,30 @@
     <h3>💡 RxJS Concepts Used:</h3>
     <ul>
       <li><strong>HttpClient</strong> returns Observables automatically</li>
-      <li><strong>Pipe operators</strong>: map, filter, tap, catchError, retry</li>
+      <li><strong>Pipe operators</strong>: map, filter, tap, catchError, retry, switchMap</li>
       <li><strong>debounceTime</strong>: Optimizes search (300ms delay)</li>
-      <li><strong>combineLatest</strong>: Combines search + user filter</li>
+      <li><strong>combineLatest</strong>: Combines multiple Observables</li>
       <li><strong>async pipe</strong>: Automatically handles subscribe/unsubscribe</li>
       <li><strong>shareReplay</strong>: Caches HTTP results</li>
+      <li><strong>fromEvent</strong>: Keyboard shortcuts (R=refresh, C=clear, F=focus)</li>
+      <li><strong>interval</strong>: Auto-refresh functionality</li>
+      <li><strong>merge</strong>: Combines manual and auto refresh triggers</li>
+      <li><strong>Subject</strong>: Notification system</li>
     </ul>
   </div>
+
+  <!-- Notification Toast -->
+  @if (currentNotification) {
+    <div class="notification">
+      {{ currentNotification }}
+    </div>
+  }
 
   <div class="controls">
     <input
       type="text"
       [formControl]="searchControl"
-      placeholder="🔍 Search..."
+      placeholder="🔍 Search... (Press F to focus)"
       class="search-input"
     >
 
@@ -32,8 +43,37 @@
       <option [ngValue]="3">User 3</option>
     </select>
 
-    <button (click)="refresh()" class="btn">🔄 Refresh</button>
-    <button (click)="clearFilters()" class="btn">🗑️ Clear Filters</button>
+    <div class="sort-controls">
+      <span class="sort-label">Sort by:</span>
+      <button 
+        (click)="changeSort('id')" 
+        class="btn-sort"
+        [class.active]="sortBy === 'id'">
+        ID {{ sortBy === 'id' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
+      </button>
+      <button 
+        (click)="changeSort('title')" 
+        class="btn-sort"
+        [class.active]="sortBy === 'title'">
+        Title {{ sortBy === 'title' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
+      </button>
+      <button 
+        (click)="changeSort('userId')" 
+        class="btn-sort"
+        [class.active]="sortBy === 'userId'">
+        User {{ sortBy === 'userId' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
+      </button>
+    </div>
+
+    <button (click)="refresh()" class="btn" title="Press R to refresh">🔄 Refresh</button>
+    <button (click)="clearFilters()" class="btn" title="Press C to clear">🗑️ Clear Filters</button>
+    <button 
+      (click)="toggleAutoRefresh()" 
+      class="btn"
+      [class.active]="autoRefreshEnabled"
+      title="Toggle auto-refresh every 30 seconds">
+      {{ autoRefreshEnabled ? '⏸️ Auto-refresh ON' : '▶️ Auto-refresh OFF' }}
+    </button>
   </div>
 
   <!-- ✅ ASYNC PIPE: No need for subscribe()! -->
